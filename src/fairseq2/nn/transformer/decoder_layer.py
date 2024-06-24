@@ -48,9 +48,11 @@ class TransformerDecoderLayer(Module, ABC):
         padding_mask: Optional[PaddingMask],
         self_attn_mask: Optional[AttentionMask] = None,
         encoder_output: Optional[Tensor] = None,
+        cross_attn_mask: Optional[Tensor] = None,
         encoder_padding_mask: Optional[PaddingMask] = None,
-        *,
-        state_bag: Optional[IncrementalStateBag] = None,
+        # *,
+        # state_bag: Optional[IncrementalStateBag] = None,
+        *state_bag: Optional[IncrementalStateBag]
     ) -> Tuple[Tensor, Optional[PaddingMask]]:
         """
         :param seqs:
@@ -225,40 +227,44 @@ class StandardTransformerDecoderLayer(TransformerDecoderLayer):
         padding_mask: Optional[PaddingMask],
         self_attn_mask: Optional[AttentionMask] = None,
         encoder_output: Optional[Tensor] = None,
+        cross_attn_mask: Optional[Tensor] = None,
         encoder_padding_mask: Optional[PaddingMask] = None,
-        *,
-        state_bag: Optional[IncrementalStateBag] = None,
+        # *,
+        # state_bag: Optional[IncrementalStateBag] = None,
+        *state_bag: Optional[IncrementalStateBag]
     ) -> Tuple[Tensor, Optional[PaddingMask]]:
-        seqs = self._forward_self_attn(seqs, padding_mask, self_attn_mask, state_bag)
+        new_state_bag = [None] * 2
+        seqs, new_state_bag[0], new_state_bag[1] = self._forward_self_attn(seqs, padding_mask, self_attn_mask, *state_bag)
 
         seqs = self._forward_encoder_decoder_attn(
-            seqs, padding_mask, encoder_output, encoder_padding_mask, state_bag
+            seqs, padding_mask, encoder_output, encoder_padding_mask, cross_attn_mask, *[None, None]
         )
 
         seqs = self._forward_ffn(seqs)
 
-        return seqs, padding_mask
+        return seqs, padding_mask, *new_state_bag
 
     def _forward_self_attn(
         self,
         seqs: Tensor,
         padding_mask: Optional[PaddingMask],
         self_attn_mask: Optional[AttentionMask],
-        state_bag: Optional[IncrementalStateBag],
+        *state_bag: Optional[IncrementalStateBag],
     ) -> Tensor:
         residual = seqs
 
         if self.norm_order != TransformerNormOrder.POST:
             seqs = self.self_attn_layer_norm(seqs)
 
-        seqs = self.self_attn(
+        new_state_bag = [None] * 2
+        seqs, new_state_bag[0], new_state_bag[1] = self.self_attn(
             seqs,
             padding_mask,
-            keys=seqs,
-            key_padding_mask=padding_mask,
-            values=seqs,
-            attn_mask=self_attn_mask,
-            state_bag=state_bag,
+            seqs,
+            padding_mask,
+            seqs,
+            self_attn_mask,
+            *state_bag,
         )
 
         if self.self_attn_norm is not None:
@@ -272,7 +278,7 @@ class StandardTransformerDecoderLayer(TransformerDecoderLayer):
         if self.norm_order == TransformerNormOrder.POST:
             seqs = self.self_attn_layer_norm(seqs)
 
-        return seqs
+        return seqs, *new_state_bag
 
     def _forward_encoder_decoder_attn(
         self,
@@ -280,7 +286,8 @@ class StandardTransformerDecoderLayer(TransformerDecoderLayer):
         padding_mask: Optional[PaddingMask],
         encoder_output: Optional[Tensor],
         encoder_padding_mask: Optional[PaddingMask],
-        state_bag: Optional[IncrementalStateBag],
+        cross_attn_mask: Optional[Tensor],
+        *state_bag: Optional[IncrementalStateBag],
     ) -> Tensor:
         if self.encoder_decoder_attn is None:
             if encoder_output is not None:
@@ -303,10 +310,11 @@ class StandardTransformerDecoderLayer(TransformerDecoderLayer):
         seqs = self.encoder_decoder_attn(
             seqs,
             padding_mask,
-            keys=encoder_output,
-            key_padding_mask=encoder_padding_mask,
-            values=encoder_output,
-            state_bag=state_bag,
+            encoder_output,
+            encoder_padding_mask,
+            encoder_output,
+            cross_attn_mask,
+            *state_bag,
         )
 
         if self.encoder_decoder_attn_dropout is not None:

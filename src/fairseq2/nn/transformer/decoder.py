@@ -15,6 +15,7 @@ from torch.nn import Module
 from torch.utils.hooks import RemovableHandle
 
 from fairseq2.nn.incremental_state import IncrementalStateBag
+from fairseq2.nn.transformer import RectAttentionMask
 from fairseq2.nn.module_list import ModuleList
 from fairseq2.nn.normalization import LayerNorm
 from fairseq2.nn.padding import PaddingMask
@@ -57,8 +58,9 @@ class TransformerDecoder(Module, ABC):
         padding_mask: Optional[PaddingMask],
         encoder_output: Optional[Tensor] = None,
         encoder_padding_mask: Optional[PaddingMask] = None,
-        *,
-        state_bag: Optional[IncrementalStateBag] = None,
+        # *,
+        # state_bag: Optional[IncrementalStateBag] = None,
+        *state_bag: Optional[list],
     ) -> Tuple[Tensor, Optional[PaddingMask]]:
         """
         :param seqs:
@@ -208,44 +210,59 @@ class StandardTransformerDecoder(TransformerDecoder):
     def forward(
         self,
         seqs: Tensor,
-        padding_mask: Optional[PaddingMask],
+        # padding_mask: Optional[PaddingMask],
+        self_attn_mask: Optional[PaddingMask],
         encoder_output: Optional[Tensor] = None,
-        encoder_padding_mask: Optional[PaddingMask] = None,
-        *,
-        state_bag: Optional[IncrementalStateBag] = None,
+        # encoder_padding_mask: Optional[PaddingMask] = None,
+        cross_attn_mask: Optional[Tensor] = None,
+        # *,
+        # state_bag: Optional[IncrementalStateBag] = None,
+        *state_bag: Optional[list],
     ) -> Tuple[Tensor, Optional[PaddingMask]]:
         if self._layer_output_hooks and self.layers.drop_p > 0.0:
             raise RuntimeError(
                 "The layer output hooks cannot be run when LayerDrop is enabled."
             )
+        padding_mask = None
+        encoder_padding_mask = None
+        self_attn_mask = RectAttentionMask(self_attn_mask)
+        cross_attn_mask = RectAttentionMask(cross_attn_mask)
+        layer_id = 0
+        new_state_bag = [None] * 48
+        if len(state_bag) == 0:
+            state_bag = [None] * 48
 
         num_layers = len(self.layers)
 
-        if self.self_attn_mask_factory is None:
-            self_attn_mask = None
-        else:
-            self_attn_mask = self.self_attn_mask_factory(
-                seqs, keys=seqs, training=self.training, state_bag=state_bag
-            )
+        # if self.self_attn_mask_factory is None:
+        #     self_attn_mask = None
+        # else:
+        #     self_attn_mask = self.self_attn_mask_factory(
+        #         seqs, keys=seqs, training=self.training, state_bag=state_bag
+        #     )
 
         for layer_idx, layer in enumerate(self.layers.drop_iter()):
-            seqs, padding_mask = layer(
+            seqs, padding_mask, new_state_bag[layer_id], new_state_bag[24+layer_id] = layer(
                 seqs,
                 padding_mask,
                 self_attn_mask,
                 encoder_output,
+                cross_attn_mask,
                 encoder_padding_mask,
-                state_bag=state_bag,
+                state_bag[layer_id],
+                state_bag[24+layer_id],
             )
 
             for hook in self._layer_output_hooks.values():
                 if not hook(layer_idx, seqs, padding_mask, num_layers):
                     break
+            layer_id += 1
 
         if self.layer_norm is not None:
             seqs = self.layer_norm(seqs)
 
-        return seqs, padding_mask
+        # return seqs, padding_mask
+        return seqs, *new_state_bag
 
     def extra_repr(self) -> str:
         """:meta private:"""

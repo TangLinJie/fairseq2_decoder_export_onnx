@@ -30,6 +30,7 @@ class SDPA(Module, ABC):
     def forward(
         self,
         seqs: Tensor,
+        # seq_len: int,
         keys: Tensor,
         key_padding_mask: Optional[PaddingMask],
         values: Tensor,
@@ -98,6 +99,7 @@ class TorchSDPA(SDPA):
     def forward(
         self,
         seqs: Tensor,
+        # seq_len: int,
         keys: Tensor,
         key_padding_mask: Optional[PaddingMask],
         values: Tensor,
@@ -251,6 +253,9 @@ def _naive_scaled_dot_product_attention(
         m = attn_mask.materialize()
 
         # (N, H, S, S_kv) + (S, S_kv) -> (N, H, S, S_kv)
+        # print('_naive_scaled_dot_product_attention attn_weights.shape: ', attn_weights.shape)
+        # print('_naive_scaled_dot_product_attention type(attn_mask): ', type(attn_mask._mask))
+        m = m.unsqueeze(0).unsqueeze(0)
         attn_weights = attn_weights + m
 
     if key_padding_mask is not None:

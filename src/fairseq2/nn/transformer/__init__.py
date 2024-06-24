@@ -30,6 +30,7 @@ from fairseq2.nn.transformer.attention_mask import (
 from fairseq2.nn.transformer.attention_mask import (
     CustomAttentionMask as CustomAttentionMask,
 )
+from fairseq2.nn.transformer.attention_mask import RectAttentionMask
 from fairseq2.nn.transformer.decoder import (
     DecoderLayerOutputHook as DecoderLayerOutputHook,
 )

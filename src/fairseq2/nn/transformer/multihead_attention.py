@@ -53,13 +53,14 @@ class MultiheadAttention(Module, ABC):
     def forward(
         self,
         seqs: Tensor,
+        # seq_len: int,
         padding_mask: Optional[PaddingMask],
         keys: Tensor,
         key_padding_mask: Optional[PaddingMask],
         values: Tensor,
-        *,
+        # *,
         attn_mask: Optional[AttentionMask] = None,
-        state_bag: Optional[IncrementalStateBag] = None,
+        *state_bag: Optional[IncrementalStateBag],
     ) -> Tensor:
         """
         :param seqs:
@@ -378,17 +379,21 @@ class StandardMultiheadAttention(MultiheadAttention):
     def forward(
         self,
         seqs: Tensor,
+        # seq_len: int,
         padding_mask: Optional[PaddingMask],
         keys: Tensor,
         key_padding_mask: Optional[PaddingMask],
         values: Tensor,
-        *,
+        # *,
         attn_mask: Optional[AttentionMask] = None,
-        state_bag: Optional[IncrementalStateBag] = None,
+        *state_bag: Optional[IncrementalStateBag],
     ) -> Tensor:
         # (N, S, M) -> (N, H, S, K_h)
         q = self._project_q(seqs, padding_mask, state_bag)
+        new_state_bag = [None] * 2
 
+        if len(state_bag) == 0:
+            state_bag = None
         if self.training or state_bag is None:
             # k: (N, S_kv, M) -> (N, H_kv, S_kv, K_h)
             # v: (N, S_kv, M) -> (N, H_kv, S_kv, V_h)
@@ -404,6 +409,7 @@ class StandardMultiheadAttention(MultiheadAttention):
                 # v: (N, S_step, M) -> (N, H_kv, S_step, V_h)
                 k, v = self._project_kv(keys, key_padding_mask, values, state_bag)
 
+                """
                 state = state_bag.get_state(self, AttentionState)
                 if state is None:
                     state_factory = self.state_factory or FullAttentionState
@@ -417,7 +423,19 @@ class StandardMultiheadAttention(MultiheadAttention):
                     # k: (N, H_kv, S_kv, K_h)
                     # v: (N, H_kv, S_kv, V_h)
                     k, v = state.get()
+                """
+                # print('state_bag[0].shape: ', state_bag[0].shape)
+                # print('k.shape: ', k.shape)
+                if state_bag[0] is None and state_bag[1] is None:
+                    new_state_bag[0] = k
+                    new_state_bag[1] = v
+                else:
+                    k = torch.cat([state_bag[0], k], dim=2)[:, :, k.shape[2]:]
+                    v = torch.cat([state_bag[1], v], dim=2)[:, :, v.shape[2]:]
+                    new_state_bag[0] = k
+                    new_state_bag[1] = v
             else:
+                """
                 state = state_bag.get_state(self, AttentionState)
                 if state is None:
                     # k: (N, S_kv, M) -> (N, H_kv, S_kv, K_h)
@@ -433,6 +451,13 @@ class StandardMultiheadAttention(MultiheadAttention):
                     # k: (N, H_kv, S_kv, K_h)
                     # v: (N, H_kv, S_kv, V_h)
                     k, v = state.get()
+                """
+                # if state_bag[0] is None and state_bag[1] is None:
+                k, v = self._project_kv(keys, key_padding_mask, values)
+                    # new_state_bag[0], new_state_bag[1] = k, v 
+                # else:
+                #     k = state_bag[0]
+                #     v = state_bag[1]
 
         # With Grouped Query Attention, each key/value head is repeated.
         if (num_query_groups := self.num_heads // self.num_key_value_heads) > 1:
@@ -450,8 +475,10 @@ class StandardMultiheadAttention(MultiheadAttention):
 
         # attn:         (N, H, S, V_h)
         # attn_weights: (N, H, S, S_kv)
+        # print('StandardMultiheadAttention type(self.sdpa): ', type(self.sdpa))
         attn, attn_weights = self.sdpa(
             q,
+            # seq_len,
             k,
             key_padding_mask,
             v,
@@ -467,6 +494,8 @@ class StandardMultiheadAttention(MultiheadAttention):
         attn = attn.transpose(1, 2)
 
         if self.head_scale_weight is not None:
+            # print('StandardMultiheadAttention attn.shape ', attn.shape)
+            # print('StandardMultiheadAttention self.head_scale_weight.shape ', self.head_scale_weight.shape)
             attn = torch.einsum("nshv,h->nshv", attn, self.head_scale_weight)
 
         # (N, S, H, V_h) -> (N, S, V_proj)
@@ -475,7 +504,9 @@ class StandardMultiheadAttention(MultiheadAttention):
         # (N, S, V_proj) -> (N, S, M)
         attn = self.output_proj(attn)
 
-        return attn  # type: ignore[no-any-return]
+        if new_state_bag[0] is None and new_state_bag[1] is None:
+            return attn
+        return attn, *new_state_bag  # type: ignore[no-any-return]
 
     def _project_q(
         self,

@@ -119,11 +119,13 @@ class ConformerBlock(TransformerEncoderLayer):
     def forward(
         self,
         seqs: Tensor,
+        # seq_len: int,
         padding_mask: Optional[PaddingMask],
         self_attn_mask: Optional[AttentionMask] = None,
     ) -> Tuple[Tensor, Optional[PaddingMask]]:
         seqs = self._forward_ffn1(seqs)
 
+        # seqs = self._forward_self_attn(seqs, seq_len, padding_mask, self_attn_mask)
         seqs = self._forward_self_attn(seqs, padding_mask, self_attn_mask)
 
         seqs = self._forward_conv(seqs, padding_mask)
@@ -149,6 +151,7 @@ class ConformerBlock(TransformerEncoderLayer):
     def _forward_self_attn(
         self,
         seqs: Tensor,
+        # seq_len: int,
         padding_mask: Optional[PaddingMask],
         self_attn_mask: Optional[AttentionMask],
     ) -> Tensor:
@@ -156,8 +159,10 @@ class ConformerBlock(TransformerEncoderLayer):
 
         seqs = self.self_attn_layer_norm(seqs)
 
+        print('ConformerBlock type(self.self_attn): ', type(self.self_attn))
         seqs = self.self_attn(
             seqs,
+            # seq_len,
             padding_mask,
             keys=seqs,
             key_padding_mask=padding_mask,

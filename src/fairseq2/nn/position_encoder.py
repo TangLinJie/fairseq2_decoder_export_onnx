@@ -63,10 +63,11 @@ class PositionEncoder(Module, ABC):
             Same as ``seqs``.
         """
         if self.max_seq_len is not None:
-            if self.training or state_bag is None:
-                start_step = 0
-            else:
-                start_step = state_bag.step_nr
+            # if self.training or state_bag is None:
+            #     start_step = 0
+            # else:
+            #     start_step = state_bag.step_nr
+            start_step = state_bag[0]
 
             if (seq_len := start_step + seqs.size(-2)) > self.max_seq_len:
                 raise ValueError(
@@ -229,12 +230,15 @@ class SinusoidalPositionEncoder(PositionEncoder):
         """:meta private:"""
         seq_len = seqs.size(-2)
 
-        if self.training or state_bag is None:
-            start_step = 0
-        else:
-            start_step = state_bag.step_nr
+        # if self.training or state_bag is None:
+        #     start_step = 0
+        # else:
+        #     start_step = state_bag.step_nr
+        start_step = state_bag[0]
 
-        fp32_seqs = seqs.float() + self.freqs[start_step : start_step + seq_len]
+        # print('SinusoidalPositionEncoder _do_forward self.freqs: ', self.freqs)
+        # print('SinusoidalPositionEncoder _do_forward self.freqs.shape, seqs.shape: ', self.freqs.shape, seqs.shape)
+        fp32_seqs = seqs.float() + self.freqs[start_step : start_step + seq_len].unsqueeze(0)
 
         return fp32_seqs.type_as(seqs)
 

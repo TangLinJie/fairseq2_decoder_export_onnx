@@ -23,7 +23,7 @@ class PaddingMask:
 
     materialized: Optional[Tensor]
 
-    def __init__(self, seq_lens: Tensor, batch_seq_len: int) -> None:
+    def __init__(self, seq_lens: Tensor, batch_seq_len: int, materialized = None) -> None:
         """
         :param seq_lens:
             An array where each element represents the length of a sequence.

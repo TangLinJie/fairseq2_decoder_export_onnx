@@ -144,6 +144,57 @@ class CausalAttentionMask(AttentionMask):
         )
 
 
+@final
+class RectAttentionMask(AttentionMask):
+    """Represents a causal attention mask.
+
+    *Shape:* :math:`(S,S_{kv})`, where :math:`S` is the sequence length and
+    :math:`S_{kv}` is the key/value sequence length.
+
+    Usage:
+
+    >>> import torch
+    >>>
+    >>> from fairseq2.nn.transformer import CausalAttentionMask
+    >>>
+    >>> mask = CausalAttentionMask(seq_len=4, key_len=6)
+    >>> mask.materialize()
+    tensor([[0., -inf, -inf, -inf, -inf, -inf],
+            [0.,   0., -inf, -inf, -inf, -inf],
+            [0.,   0.,   0., -inf, -inf, -inf],
+            [0.,   0.,   0.,   0., -inf, -inf]])
+    >>>
+    >>> mask = CausalAttentionMask(seq_len=4, key_len=4, attn_window_len=2)
+    >>> mask.materialize()
+    tensor([[0.,   -inf, -inf, -inf],
+            [0.,     0., -inf, -inf],
+            [-inf,   0.,   0., -inf],
+            [-inf, -inf,   0.,   0.]])
+    """
+
+    def __init__(
+        self,
+        mask: Tensor
+    ) -> None:
+        """
+        :param seq_len:
+            The sequence length.
+        :param key_len:
+            The key/value sequence length.
+        :param attn_window_len:
+            The attention window length as described in Section 3.1 of
+            :cite:t:`https://doi.org/10.48550/arxiv.2004.05150`. If ``None``,
+            constructs a full causal attention mask.
+        """
+        self._mask = mask
+        super().__init__()
+        self.materialized = mask
+
+    @finaloverride
+    def _do_materialize(self) -> Tensor:
+        return self._mask
+
+
 class CausalAttentionMaskFactory:
     """Constructs instances of :class:`CausalAttentionMask`."""
 
@@ -343,5 +394,6 @@ def _create_causal_attention_mask(
         mask.triu_(diagonal=1 - attn_window_len)
 
     mask.log_()
+    mask[mask == -torch.inf] = -10000
 
     return mask.to(dtype)
